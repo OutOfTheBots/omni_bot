@@ -3,8 +3,8 @@ low level code for a 3 wheel omni directional bot
 
 Uses timer 3,4 and 5 to create pulse train for driving 3 stepper motors
 
-Motor 0
-timer 3
+Motor 0;
+timer 3;
 step pin = pin A6
 dir pin = pin A5
 EN pin = pin A4
