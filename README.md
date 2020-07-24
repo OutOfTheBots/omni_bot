@@ -5,7 +5,6 @@ Uses timer 3,4 and 5 to create pulse train for driving 3 stepper motors
 
 
 Motor 0:
-
 timer 3
 
 step pin = pin A6
