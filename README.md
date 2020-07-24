@@ -1,6 +1,6 @@
 Uses timer 3,4 and 5 to create pulse train for driving 3 stepper motors
 
-
+------------
 Motor 0:
 
 timer 3
@@ -12,7 +12,7 @@ dir pin = pin A5
 EN pin = pin A4
 
 
-
+------------
 Motor 1
 
 timer 4
@@ -25,7 +25,7 @@ EN pin = pin D10
 
 
 
-
+------------
 Motor 3
 
 timer 5
