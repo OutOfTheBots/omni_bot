@@ -1,6 +1,3 @@
-# omni_bot
-low level code for a 3 wheel omni directional bot
-
 Uses timer 3,4 and 5 to create pulse train for driving 3 stepper motors
 
 
