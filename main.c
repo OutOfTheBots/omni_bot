@@ -1,5 +1,6 @@
-#include "main.h"
+ #include "main.h"
 #include "stm32f4xx_hal.h"
+#include <math.h>
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -16,6 +17,11 @@ float target_speed[3]; //the target speed that speed is accelerating towards
 
 int32_t n[3];
 int8_t curret_dir[3], target_dir[3], RPM_zero[3];
+
+float alpha1, alpha2, alpha3; //the angles of force from motors
+float a, b, c, d, e, f, g, h, i;//the input matrix
+float det, a2, b2, c2, d2, e2,f2, g2, h2, i2;// the inverse matrix
+float x_speed, y_speed, w_speed; //desired speeds in 3 DOF
 
 
 void stepper_setup(void){
@@ -89,8 +95,8 @@ void stepper_setup(void){
 	curret_dir[1] = 1;
 	curret_dir[2] = 1;
 	target_dir[0] =1;
+	target_dir[1] =1;
 	target_dir[2] =1;
-	target_dir[3] =1;
 }
 
 void disable_steppers(void){
@@ -107,6 +113,7 @@ void enable_steppers(void){
 
 void set_speed(uint8_t motor_num, float RPM){
 
+	RPM = RPM * -1;
 	if(RPM==0){
 		RPM_zero[motor_num] = 1;
 		target_speed[motor_num] = init_speed;
@@ -126,7 +133,43 @@ void set_speed(uint8_t motor_num, float RPM){
 }
 
 
+void motion_setup(){
+	  //calucate force direction from motors in radians
+	   alpha1 = 240 * M_PI/180;
+	   alpha2 = 120 * M_PI/180;
+	   alpha3 = 0 * M_PI/180;
 
+	   //fill input matrix
+	   a = cos(alpha1);
+	   b = cos(alpha2);
+	   c = cos(alpha3);
+	   d = sin(alpha1);
+	   e = sin(alpha2);
+	   f = sin(alpha3);
+	   g = 1;
+	   h = 1;
+	   i = 1;
+
+	   //caluate the determint
+	   det = a * e * i + b * f * g + c * d * h - c * e * g - a * f * h - b * d * i;
+
+	   //calulate the inverse
+	   a2 = (e * i - f * h) / det;
+	   b2 = (h * c - i * b) / det;
+	   c2 = (b * f - c * e) / det;
+	   d2 = (g * f - d * i) / det;
+	   e2 = (a * i - g * c) / det;
+	   f2 = (d * c - a * f) / det;
+	   g2 = (d * h - g * e) / det;
+	   h2 = (g * b - a * h) / det;
+	   i2 = (a * e - d * b) / det;
+}
+
+void move_robot (float x, float y, float w){
+	  set_speed(0, a2 * x + b2 * y + c2 * w);
+	  set_speed(1, d2 * x + e2 * y + f2 * w);
+	  set_speed(2, g2 * x + h2 * y + i2 * w);
+}
 
 
 int main(void){
@@ -135,22 +178,47 @@ int main(void){
   SystemClock_Config();
 
   stepper_setup();
+  motion_setup();
 
 
   enable_steppers();
 
-
-  set_speed(2,400);
+  move_robot(100,0,0);
   HAL_Delay(3000);
 
-  set_speed(2,-210);
+  move_robot(0,0,0);
+  HAL_Delay(200);
+
+  move_robot(-100,0,0);
   HAL_Delay(3000);
 
-  set_speed(2,1);
+  move_robot(0,0,0);
+  HAL_Delay(200);
+
+  move_robot(0,100,0);
   HAL_Delay(3000);
 
-  set_speed(2,300);
+  move_robot(0,0,0);
+  HAL_Delay(200);
+
+  move_robot(0,-100,0);
   HAL_Delay(3000);
+
+  move_robot(0,0,0);
+  HAL_Delay(200);
+
+  move_robot(0,0,100);
+  HAL_Delay(3000);
+
+  move_robot(0,0,0);
+  HAL_Delay(200);
+
+  move_robot(0,0,-100);
+  HAL_Delay(3000);
+
+  move_robot(0,0,0);
+  HAL_Delay(200);
+
 
 
   disable_steppers();
@@ -210,6 +278,13 @@ void TIM3_IRQHandler(void){
 		}
 	}
 
+	if(speed[0]<11)speed[0]=11;
+	if(speed[0]>65535){
+		TIM5->CR1 &= ~TIM_CR1_CEN;
+		speed[0] = init_speed;
+		n[0]=0;
+	}
+
 	TIM3->ARR = (uint32_t)speed[0];//update ARR
 }
 
@@ -263,6 +338,13 @@ void TIM4_IRQHandler(void){
 		}
 	}
 
+	if(speed[1]<11)speed[1]=11;
+	if(speed[1]>65535){
+		TIM5->CR1 &= ~TIM_CR1_CEN;
+		speed[1] = init_speed;
+		n[1]=0;
+	}
+
 	TIM4->ARR = (uint32_t)speed[1];//update ARR
 }
 
@@ -273,6 +355,7 @@ void TIM5_IRQHandler(void){
 
 	//if the target speed is zero & current speed is slower init speed the disable the channel
 	if (RPM_zero[2] && (speed[2] >= init_speed))TIM5->CR1 &= ~TIM_CR1_CEN;
+
 
 	//if the current direction is same as target direction
 	if(target_dir[2] == curret_dir[2]){
@@ -315,6 +398,12 @@ void TIM5_IRQHandler(void){
 		}
 	}
 
+	if(speed[2]<11)speed[2]=11;
+	if(speed[2]>65535){
+		TIM5->CR1 &= ~TIM_CR1_CEN;
+		speed[2] = init_speed;
+		n[2]=0;
+	}
 	TIM5->ARR = (uint32_t)speed[2];//update ARR
 }
 
