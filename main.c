@@ -5,7 +5,7 @@
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 
-#define freq_source 80000000 //internal clock source freq
+#define freq_source 84000000 //internal clock source freq
 
 uint16_t prescaler = 40; //prescaler used by timer
 uint32_t freq_counter; //the freq of the timer calculated from freq_source and prescaler
@@ -113,6 +113,7 @@ void enable_steppers(void){
 
 void set_speed(uint8_t motor_num, float RPM){
 
+	if((!(RPM==0))&& (RPM <1))RPM=1;
 	RPM = RPM * -1;
 	if(RPM==0){
 		RPM_zero[motor_num] = 1;
@@ -126,6 +127,8 @@ void set_speed(uint8_t motor_num, float RPM){
 		}
 		tick_freq[motor_num] = SPR * RPM / 60;
 		target_speed[motor_num] = freq_counter / tick_freq[motor_num];
+		if(target_speed[motor_num]>65335)target_speed[motor_num]=65335;
+
 	}
 	if(motor_num==0)TIM3->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 3.
 	if(motor_num==1)TIM4->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 4.
@@ -183,42 +186,10 @@ int main(void){
 
   enable_steppers();
 
-  move_robot(100,0,0);
-  HAL_Delay(3000);
-
-  move_robot(0,0,0);
-  HAL_Delay(200);
-
-  move_robot(-100,0,0);
-  HAL_Delay(3000);
-
-  move_robot(0,0,0);
-  HAL_Delay(200);
-
-  move_robot(0,100,0);
-  HAL_Delay(3000);
-
-  move_robot(0,0,0);
-  HAL_Delay(200);
-
-  move_robot(0,-100,0);
-  HAL_Delay(3000);
-
-  move_robot(0,0,0);
-  HAL_Delay(200);
-
-  move_robot(0,0,100);
-  HAL_Delay(3000);
-
-  move_robot(0,0,0);
-  HAL_Delay(200);
-
-  move_robot(0,0,-100);
-  HAL_Delay(3000);
-
-  move_robot(0,0,0);
-  HAL_Delay(200);
-
+  move_robot(0, 0, -0.0370579838753*300);
+  HAL_Delay(1000);
+  move_robot(0, 0, -0.0359721660614*300);
+  HAL_Delay(10000);
 
 
   disable_steppers();
