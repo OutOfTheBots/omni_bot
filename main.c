@@ -113,7 +113,6 @@ void enable_steppers(void){
 
 void set_speed(uint8_t motor_num, float RPM){
 
-	if((!(RPM==0))&& (RPM <1))RPM=1;
 	RPM = RPM * -1;
 	if(RPM==0){
 		RPM_zero[motor_num] = 1;
@@ -127,12 +126,11 @@ void set_speed(uint8_t motor_num, float RPM){
 		}
 		tick_freq[motor_num] = SPR * RPM / 60;
 		target_speed[motor_num] = freq_counter / tick_freq[motor_num];
-		if(target_speed[motor_num]>65335)target_speed[motor_num]=65335;
-
+		
+		if(motor_num==0)TIM3->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 3.
+		if(motor_num==1)TIM4->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 4.
+		if(motor_num==2)TIM5->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 5.
 	}
-	if(motor_num==0)TIM3->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 3.
-	if(motor_num==1)TIM4->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 4.
-	if(motor_num==2)TIM5->CR1 |= TIM_CR1_CEN; //enable channel 1 of timer 5.
 }
 
 
@@ -226,9 +224,9 @@ void TIM3_IRQHandler(void){
 		}else if(speed[0]>target_speed[0]){
 					n[0]++;
 					speed[0] = speed[0] - ( (2 * speed[0]) / (4 * n[0] + 1) );
-		  	  }else{
-		  		  n[0]--;
-		  		  speed[0] = (speed[0] * (4 * n[0] + 1) / (4 * n[0] - 1));
+		  	  }else if(n[0]>0){		  		  
+		  		speed[0] = (speed[0] * (4 * n[0] + 1) / (4 * n[0] - 1));
+				n[0]--;
 		  	  }
 
 	//else the current direction is not same as target direction
@@ -243,9 +241,9 @@ void TIM3_IRQHandler(void){
 			n[0] = 0;
 
 		//else slow down
-		}else{
-			n[0]--;
+		}else if(n[0]>0){			
 			speed[0] = (speed[0] * (4 * n[0] + 1) / (4 * n[0] - 1));
+			n[0]--;
 		}
 	}
 
@@ -286,9 +284,9 @@ void TIM4_IRQHandler(void){
 		}else if(speed[1]>target_speed[1]){
 					n[1]++;
 					speed[1] = speed[1] - ( (2 * speed[1]) / (4 * n[1] + 1) );
-		  	  }else{
-		  		  n[1]--;
-		  		  speed[1] = (speed[1] * (4 * n[1] + 1) / (4 * n[1] - 1));
+		  	  }else if(n[1]>0){		  		  
+		  		  	speed[1] = (speed[1] * (4 * n[1] + 1) / (4 * n[1] - 1));
+					n[1]--;
 		  	  }
 
 	//else the current direction is not same as target direction
@@ -303,9 +301,9 @@ void TIM4_IRQHandler(void){
 			n[1] = 0;
 
 		//else slow down
-		}else{
-			n[1]--;
+		}else if(n[1]>0){			
 			speed[1] = (speed[1] * (4 * n[1] + 1) / (4 * n[1] - 1));
+			n[1]--;
 		}
 	}
 
@@ -346,9 +344,9 @@ void TIM5_IRQHandler(void){
 		}else if(speed[2]>target_speed[2]){
 					n[2]++;
 					speed[2] = speed[2] - ( (2 * speed[2]) / (4 * n[2] + 1) );
-		  	  }else{
-		  		  n[2]--;
-		  		  speed[2] = (speed[2] * (4 * n[2] + 1) / (4 * n[2] - 1));
+		  	  }else if(n[2]>0){		  		  
+		  		  	speed[2] = (speed[2] * (4 * n[2] + 1) / (4 * n[2] - 1));
+					n[2]--;
 		  	  }
 
 	//else the current direction is not same as target direction
@@ -363,9 +361,9 @@ void TIM5_IRQHandler(void){
 			n[2] = 0;
 
 		//else slow down
-		}else{
-			n[2]--;
+		}else if(n[2]>0){			
 			speed[2] = (speed[2] * (4 * n[2] + 1) / (4 * n[2] - 1));
+			n[2]--;
 		}
 	}
 
