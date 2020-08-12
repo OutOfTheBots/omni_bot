@@ -2,28 +2,11 @@
 #include "stm32f4xx_hal.h"
 #include <math.h>
 
-UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart3;
-DMA_HandleTypeDef hdma_usart3_rx;
-
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_USART1_UART_Init(void);
-static void MX_USART3_UART_Init(void);
-
-
-//--------------------------------------------------------------------
-//following variables are used for RC receiver
-
-char content[3200];
-uint16_t DMA_pos, current_pos;
-char LSB, MSB;
-//------------------------------------------------------------------------
 
 
 #define freq_source 84000000 //internal clock source freq for all timers
-
 
 //--------------------------------------------------------------------------------------
 //following constants and variables are used for generating step pulse train
@@ -76,8 +59,6 @@ void pin_setup(void);
 void timer_setup(void);
 void motion_setup();
 
-void DMA_Init(void);
-
 
 void disable_steppers(void);
 void enable_steppers(void);
@@ -100,261 +81,22 @@ void kinematics_setup(void){
 }
 
 
-void print_float(float float_value){
-	char *tmpSign = (float_value < 0) ? "-" : "";
-	float tmpVal = (float_value < 0) ? -float_value : float_value;
-
-	int tmpInt1 = tmpVal;                  // Get the integer
-	float tmpFrac = tmpVal - tmpInt1;      // Get fraction
-	int tmpInt2 = trunc(tmpFrac * 10000);  // Turn into integer
-
-	// Print as parts, note that you need 0-padding for fractional bit.
-
-	printf ("%s%d.%04d", tmpSign, tmpInt1, tmpInt2);
-}
-
 
 int main(void){
 
   HAL_Init();
   SystemClock_Config();
-
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_USART1_UART_Init();
-  MX_USART3_UART_Init();
-
-
-  NVIC_EnableIRQ(USART3_IRQn);
-  DMA_Init();
 
   pin_setup();
   timer_setup();
   motion_setup();
   kinematics_setup();
 
-  int x_stick, y_stick, throttle_stick, yaw_stick, ch_5, ch_6;
-
-
-  printf("Start up\r\n");
-
 
 
   while (1){
-
-	  print_float(robot_position[0]);
-	  printf("  ");
-	  print_float(robot_position[1]);
-	  printf("  ");
-	  print_float(robot_position[2]);
-	  printf("\r\n");
-
-
-	  current_pos = DMA_pos;
-
-	  //wait for first start byte
-	  while (content[current_pos] != 0x20){
-		  HAL_Delay(1);
-		  if (current_pos != DMA_pos){
-			  current_pos++;
-			  if (current_pos == 3200){
-				  current_pos = 0;
-			  }
-		  }
-	  }
-
-	  //wait for next byte to be avaible
-	  while(current_pos==DMA_pos){
-		  HAL_Delay(1);
-	  }
-	  current_pos++;
-	  if (current_pos == 3200){
-		  current_pos = 0;
-	  }
-
-	  //if it is seconf start byte the get needed data
-	  if (content[current_pos] == 0x40){
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get LSB
-		  LSB = content[current_pos];
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get MSB
-		  MSB = content[current_pos];
-
-		  //combine bytes then translate and translate
-		  x_stick = (LSB | (MSB << 8));
-		  x_stick -= 1500;
-
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get LSB
-		  LSB = content[current_pos];
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get MSB
-		  MSB = content[current_pos];
-
-		  //combine bytes then translate and translate
-		  y_stick = (LSB | (MSB << 8));
-		  y_stick -= 1500;
-
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get LSB
-		  LSB = content[current_pos];
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get MSB
-		  MSB = content[current_pos];
-
-		  //combine bytes then translate and translate
-		  throttle_stick = (LSB | (MSB << 8))-1000;
-
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get LSB
-		  LSB = content[current_pos];
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			  HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get MSB
-		  MSB = content[current_pos];
-
-		  //combine bytes then translate and dilate
-		  yaw_stick = (LSB | (MSB << 8));
-		  yaw_stick -= 1500;
-
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			   HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			  current_pos = 0;
-		  }
-
-		  //get LSB
-		  LSB = content[current_pos];
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			   HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			   current_pos = 0;
-		  }
-
-		  //get MSB
-		  MSB = content[current_pos];
-
-		  //combine bytes then translate and translate
-		  ch_5 = (LSB | (MSB << 8));
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			   HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			   current_pos = 0;
-		  }
-
-		  //get LSB
-		  LSB = content[current_pos];
-
-		  //wait for next byte to be avaiable
-		  while(current_pos==DMA_pos){
-			   HAL_Delay(1);
-		  }
-		  current_pos++;
-		  if (current_pos == 3200){
-			   current_pos = 0;
-		  }
-
-		  //get MSB
-		  MSB = content[current_pos];
-
-		  //combine bytes then translate and translate
-		  ch_6 = (LSB | (MSB << 8));
-
-		  if(ch_5==1000)disable_steppers();
-		  else enable_steppers();
-
-		  move_robot(x_stick * 0.7, y_stick * 0.7, yaw_stick * -0.7 );
-		  //set_speed(2,yaw_stick/10);
-
-		  //printf("%d  %d  %d\r\n", yaw_stick, x_stick, y_stick);
-
-	  }
-
-
+	  
 
 
   }
@@ -703,46 +445,6 @@ void TIM5_IRQHandler(void){
 
 
 
-
-
-void DMA_Init(void){
-	  RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
-
-	  //enable DMA on UART2 receive
-	  USART3->CR3 |= USART_CR3_DMAR;
-	  //enable interrupt on receive
-	  USART3->CR1 |= USART_CR1_RXNEIE;
-
-	  //reset DMA1 stream5
-	  DMA1_Stream1->CR &= ~DMA_SxCR_EN;
-	  while (DMA1_Stream1->CR & DMA_SxCR_EN){
-	  }  //wait for reset to complete
-
-	  //set the UART2_RX register
-	  DMA1_Stream1->PAR = (uint32_t)&(USART3->DR);
-	  //set memory buffer to write to
-	  DMA1_Stream1->M0AR = &content;
-	  //set number of bytes to transfer
-	  DMA1_Stream1->NDTR = 3200;
-	  //set the channel to CH4 (UART2_RX), circlular buffer and incremant
-	  DMA1_Stream1->CR =  DMA_SxCR_CHSEL_2 | DMA_SxCR_CIRC | DMA_SxCR_MINC | DMA_SxCR_TCIE;
-
-	  //enable the DMA
-	  DMA1_Stream1->CR |= DMA_SxCR_EN;
-}
-
-void USART3_IRQHandler(void){
-  DMA_pos++;
-  if (DMA_pos == 3200){
-	  DMA_pos = 0;
-  }
-}
-
-
-
-
-
-
 /** System Clock Configuration
 */
 void SystemClock_Config(void)
@@ -799,58 +501,6 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
-/* USART1 init function */
-static void MX_USART1_UART_Init(void)
-{
-
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 256000;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
-}
-
-/* USART3 init function */
-static void MX_USART3_UART_Init(void)
-{
-
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
-}
-
-/** 
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void) 
-{
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-
-}
 
 /** Configure pins as 
         * Analog 
