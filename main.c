@@ -350,7 +350,7 @@ void TIM3_IRQHandler(void){
 			robot_position[1] += delta_y * cos(robot_position[2] + motor_offsets[0]);
 			robot_position[2] += delta_theda;
 
-			if(delta_theda>M_PI)delta_theda -= M_PI;
+			if(delta_theda>M_PI)delta_theda -= M_PI * 2;
 		}
 	}else{
 		divider_counter[0] --;
@@ -362,7 +362,7 @@ void TIM3_IRQHandler(void){
 			robot_position[1] -= delta_y * cos(robot_position[2] + motor_offsets[0]);
 			robot_position[2] -= delta_theda;
 
-			if(delta_theda< (M_PI * -1))delta_theda += M_PI;
+			if(delta_theda< (M_PI * -1))delta_theda += M_PI * 2;
 		}
 
 	}
@@ -387,7 +387,7 @@ void TIM4_IRQHandler(void){
 			robot_position[1] += delta_y * cos(robot_position[2] + motor_offsets[1]);
 			robot_position[2] += delta_theda;
 
-			if(delta_theda>M_PI)delta_theda -= M_PI;
+			if(delta_theda>M_PI)delta_theda -= M_PI * 2;
 		}
 	}else{
 		divider_counter[1] --;
@@ -399,7 +399,7 @@ void TIM4_IRQHandler(void){
 			robot_position[1] -= delta_y * cos(robot_position[2] + motor_offsets[1]);
 			robot_position[2] -= delta_theda;
 
-			if(delta_theda< (M_PI * -1))delta_theda += M_PI;
+			if(delta_theda< (M_PI * -1))delta_theda += M_PI * 2;
 		}
 
 	}
@@ -423,7 +423,7 @@ void TIM5_IRQHandler(void){
 			robot_position[1] += delta_y * cos(robot_position[2] + motor_offsets[2]);
 			robot_position[2] += delta_theda;
 
-			if(delta_theda>M_PI)delta_theda -= M_PI;
+			if(delta_theda>M_PI)delta_theda -= M_PI * 2;
 		}
 	}else{
 		divider_counter[2] --;
@@ -435,7 +435,7 @@ void TIM5_IRQHandler(void){
 			robot_position[1] -= delta_y * cos(robot_position[2] + motor_offsets[2]);
 			robot_position[2] -= delta_theda;
 
-			if(delta_theda < (M_PI * -1))delta_theda += M_PI;
+			if(delta_theda < (M_PI * -1))delta_theda += M_PI * 2;
 		}
 
 	}
