@@ -12,6 +12,7 @@ static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 
+
 //--------------------------------------------------------------------
 //following variables are used for RC receiver
 
@@ -49,15 +50,18 @@ int8_t RPM_zero[3];
 int8_t stepper_enable;
 //------------------------------------------------------------------------------------------
 
-//following constants and variables are for dead reckoning
 
-#define wheel_dai 100
-#define wheel_base 280
-#define SPR_diver 4
+//folowing constants and varibles are used for the dead reckening
 
-double distane_per_step;
-double position[3]; //current position in x, y, w measured in mm
-double motor0_offset, motor1_offset;
+#define wheel_circumference 318.8  //the was calculated by making robot do exactly 10 wheel rotation then measuring and divide by 10
+#define robot_dia 136.5 //this was done by doing 100 rotation of robot then working backewards from number of steps taken
+#define SPR_divider 16 //this will be used to divide up the micro stepping
+
+double robot_arc, delta_theda, delta_x, delta_y;
+double robot_position[3]; //this will store x, y, w position of the robot
+double motor_offsets[3]; //this will hold the offset angles of the motors.
+
+uint8_t divider_counter[3];
 
 //--------------------------------------------------------------------------------
 //following variables are used for motion kinematics
@@ -70,7 +74,6 @@ float det, a2, b2, c2, d2, e2,f2, g2, h2, i2;// the inverse matrix
 
 void pin_setup(void);
 void timer_setup(void);
-void dead_reckoning_setup(void);
 void motion_setup();
 
 void DMA_Init(void);
@@ -82,7 +85,19 @@ void set_speed(uint8_t motor_num, float RPM); //low level control of motor speed
 void move_robot (float x, float y, float w); //kinematic movement of robot
 
 
+void kinematics_setup(void){
 
+	robot_arc = robot_dia / cos(M_PI / 3);  //all trig functions are in radians
+
+	delta_theda = wheel_circumference * SPR_divider / ( SPR * 2 * M_PI * (robot_arc + robot_dia));
+	delta_y = robot_arc * sin(delta_theda);
+	delta_x = robot_arc - (robot_arc * cos(delta_theda));
+
+	//calculate the offsets in radians 150, 130, -90
+	motor_offsets[0] = M_PI * 5 / 6;
+	motor_offsets[1] = M_PI / 6;
+	motor_offsets[3] = M_PI / -2;
+}
 
 
 void print_float(float float_value){
@@ -95,7 +110,7 @@ void print_float(float float_value){
 
 	// Print as parts, note that you need 0-padding for fractional bit.
 
-	printf ("%s%d.%04d\r\n", tmpSign, tmpInt1, tmpInt2);
+	printf ("%s%d.%04d", tmpSign, tmpInt1, tmpInt2);
 }
 
 
@@ -115,21 +130,24 @@ int main(void){
 
   pin_setup();
   timer_setup();
-  dead_reckoning_setup();
   motion_setup();
+  kinematics_setup();
 
   int x_stick, y_stick, throttle_stick, yaw_stick, ch_5, ch_6;
 
 
   printf("Start up\r\n");
 
+
+
   while (1){
 
-
-	  print_float(position[0]);
-	  //printf("%d\r\n", motor_pos[2]);
-
-
+	  print_float(robot_position[0]);
+	  printf("  ");
+	  print_float(robot_position[1]);
+	  printf("  ");
+	  print_float(robot_position[2]);
+	  printf("\r\n");
 
 
 	  current_pos = DMA_pos;
@@ -415,14 +433,6 @@ void timer_setup(void){
 	NVIC_SetPriority 	(TIM5_IRQn, 0);
 }
 
-void dead_reckoning_setup(void){
-
-	//calculate the needed variables
-	motor0_offset = M_PI * 4 / 3;
-	motor1_offset = M_PI * 2 /3;
-	distane_per_step = M_PI * wheel_dai / ( SPR / SPR_diver);
-
-}
 
 void motion_setup(){
 	  //calucate force direction from motors in radians
@@ -588,64 +598,104 @@ void TIM3_IRQHandler(void){
 
 	TIM3->SR &= ~TIM_SR_UIF; // clear UIF flag
 
-	volatile uint8_t time_count0;
-	time_count0 ++;
+	if(curret_dir[0]){
+		divider_counter[0] ++;
+		if(divider_counter[0]==SPR_divider){
 
-	if(time_count0==SPR_diver){
-		time_count0 = 0;
-		//update dead reckoning
+			divider_counter[0] = 0;
 
-		if(curret_dir[0]){
-			position[0] -= cos(motor0_offset + position[2]) * distane_per_step;
-			position[1] -= sin(motor0_offset + position[2]) * distane_per_step;
-		}else{
-			position[0] += cos(motor0_offset + position[2]) * distane_per_step;
-			position[1] += sin(motor0_offset + position[2]) * distane_per_step;
+			robot_position[0] += delta_x * cos(robot_position[2] + motor_offsets[0]);
+			robot_position[1] += delta_y * cos(robot_position[2] + motor_offsets[0]);
+			robot_position[2] += delta_theda;
+
+			if(delta_theda>M_PI)delta_theda -= M_PI;
 		}
+	}else{
+		divider_counter[0] --;
+		if(divider_counter[0]==0){
+
+			divider_counter[0] = SPR_divider;
+
+			robot_position[0] -= delta_x * cos(robot_position[2] + motor_offsets[0]);
+			robot_position[1] -= delta_y * cos(robot_position[2] + motor_offsets[0]);
+			robot_position[2] -= delta_theda;
+
+			if(delta_theda< (M_PI * -1))delta_theda += M_PI;
+		}
+
 	}
 
-	motor_update(0);
-	}
+
+
+	motor_update(0); //This fuction calculates the next needed value for the ARR and switches the dir pin if needed
+}
+
 
 void TIM4_IRQHandler(void){
 
 	TIM4->SR &= ~TIM_SR_UIF; // clear UIF flag
 
-	volatile uint8_t time_count1;
-	time_count1 ++;
+	if(curret_dir[1]){
+		divider_counter[1] ++;
+		if(divider_counter[1]==SPR_divider){
 
-	if(time_count1==SPR_diver){
-		time_count1 = 0;
-		//update dead reckoning
-		if(curret_dir[1]){
-			position[0] -= cos(motor1_offset + position[2]) * distane_per_step;
-			position[1] -= sin(motor1_offset + position[2]) * distane_per_step;
-		}else{
-			position[0] += cos(motor1_offset + position[2]) * distane_per_step;
-			position[1] += sin(motor1_offset + position[2]) * distane_per_step;
+			divider_counter[1] = 0;
+
+			robot_position[0] += delta_x * cos(robot_position[2] + motor_offsets[1]);
+			robot_position[1] += delta_y * cos(robot_position[2] + motor_offsets[1]);
+			robot_position[2] += delta_theda;
+
+			if(delta_theda>M_PI)delta_theda -= M_PI;
 		}
+	}else{
+		divider_counter[1] --;
+		if(divider_counter[1]==0){
+
+			divider_counter[1] = SPR_divider;
+
+			robot_position[0] -= delta_x * cos(robot_position[2] + motor_offsets[1]);
+			robot_position[1] -= delta_y * cos(robot_position[2] + motor_offsets[1]);
+			robot_position[2] -= delta_theda;
+
+			if(delta_theda< (M_PI * -1))delta_theda += M_PI;
+		}
+
 	}
 
-	motor_update(1);
+	motor_update(1); //This fuction calculates the next needed value for the ARR and switches the dir pin if needed
 }
+
 
 void TIM5_IRQHandler(void){
 
 	TIM5->SR &= ~TIM_SR_UIF; // clear UIF flag
 
-	volatile uint8_t time_count2;
-	time_count2 ++;
 
-	if(time_count2==SPR_diver){
-		time_count2 = 0;
-		//update dead reckoning
-		if(curret_dir[2]){
-			position[0] -= cos(position[2]) * distane_per_step;
-			position[1] -= sin(position[2]) * distane_per_step;
-		}else{
-			position[0] += cos(position[2]) * distane_per_step;
-			position[1] += sin(position[2]) * distane_per_step;
+	if(curret_dir[2]){
+		divider_counter[2] ++;
+		if(divider_counter[2]==SPR_divider){
+
+			divider_counter[2] = 0;
+
+			robot_position[0] += delta_x * cos(robot_position[2] + motor_offsets[2]);
+			robot_position[1] += delta_y * cos(robot_position[2] + motor_offsets[2]);
+			robot_position[2] += delta_theda;
+
+			if(delta_theda>M_PI)delta_theda -= M_PI;
 		}
+	}else{
+		divider_counter[2] --;
+		if(divider_counter[2]==0){
+
+			divider_counter[2] = SPR_divider;
+
+			robot_position[0] -= delta_x * cos(robot_position[2] + motor_offsets[2]);
+			robot_position[1] -= delta_y * cos(robot_position[2] + motor_offsets[2]);
+			robot_position[2] -= delta_theda;
+
+			if(delta_theda < (M_PI * -1))delta_theda += M_PI;
+		}
+
 	}
 
 	motor_update(2); //This fuction calculates the next needed value for the ARR and switches the dir pin if needed
