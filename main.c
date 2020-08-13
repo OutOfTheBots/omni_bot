@@ -2,8 +2,24 @@
 #include "stm32f4xx_hal.h"
 #include <math.h>
 
+UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart3_rx;
+
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_USART1_UART_Init(void);
+static void MX_USART3_UART_Init(void);
+
+
+//--------------------------------------------------------------------
+//following variables are used for RC receiver
+
+char content[3200];
+uint16_t DMA_pos, current_pos;
+char LSB, MSB;
+//------------------------------------------------------------------------
 
 
 #define freq_source 84000000 //internal clock source freq for all timers
@@ -60,29 +76,112 @@ float det, a2, b2, c2, d2, e2,f2, g2, h2, i2;// the inverse matrix
 void pin_setup(void);
 void timer_setup(void);
 void motion_setup();
+
+void DMA_Init(void);
+
+
 void disable_steppers(void);
 void enable_steppers(void);
 void set_speed(uint8_t motor_num, float RPM); //low level control of motor speed
 void move_robot (float x, float y, float w); //kinematic movement of robot
+void kinematics_setup(void);
 
 
-void kinematics_setup(void){
+void print_float(float float_value){
+	char *tmpSign = (float_value < 0) ? "-" : "";
+	float tmpVal = (float_value < 0) ? -float_value : float_value;
 
-	robot_arc = robot_dia * 2;  //all trig functions are in radians
+	int tmpInt1 = tmpVal;                  // Get the integer
+	float tmpFrac = tmpVal - tmpInt1;      // Get fraction
+	int tmpInt2 = trunc(tmpFrac * 10000);  // Turn into integer
 
-	delta_theda = wheel_circumference /  (200 * (robot_arc + robot_dia));
+	// Print as parts, note that you need 0-padding for fractional bit.
 
-	delta_distance = robot_arc * sin(delta_theda);
-
-	//calculate the offsets in radians
-	motor_x_offsets[0] = M_PI * 4 / 3; //240 degrees
-	motor_x_offsets[1] = M_PI * 2 / 3;  //120 degrees
-	motor_x_offsets[2] = 0; //0 degrees
-
-	motor_y_offsets[0] = M_PI * 5 / 6;  //150 degrees
-	motor_y_offsets[1] = M_PI / 6;  //30 degrees
-	motor_y_offsets[2] = M_PI / -2;  //-90 degrees
+	printf ("%s%d.%04d", tmpSign, tmpInt1, tmpInt2);
 }
+
+int x_stick, y_stick, throttle_stick, yaw_stick, ch_5, ch_6;
+
+void goto_position (double x_finish, double y_finish, double w_finish){
+
+	float x_speed, y_speed, w_speed;
+
+	while((robot_position[2] > 0.05) | (robot_position[2] < -0.05)){
+		if(robot_position[2]>0)move_robot(0 , 0,  60);
+		else move_robot(0 , 0,  -60);
+		HAL_Delay(10);
+
+		  printf("first  w= ");
+		  print_float(robot_position[2]);
+		  printf("  x= ");
+		  print_float(robot_position[0]);
+		  printf("  y= ");
+		  print_float(robot_position[1]);
+		  printf("  yaw_st = %d  x_st = %d  y_st = %d   ch_6 = %d\r\n", yaw_stick, x_stick, y_stick, ch_6);
+	}
+	move_robot(0 , 0,  0);
+
+
+	float delta_x = x_finish - robot_position[0];
+	float delta_y = y_finish - robot_position[1];
+	float distance_2_finish_squared = delta_x * delta_x + delta_y * delta_y;
+	float angle_2_finish = tan(delta_x / delta_y);
+
+
+	while (distance_2_finish_squared > 100){
+
+		delta_x = x_finish - robot_position[0];
+		delta_y = y_finish - robot_position[1];
+		distance_2_finish_squared = delta_x * delta_x + delta_y * delta_y;
+
+		if(delta_x > 0){
+			if (delta_x > 30)x_speed = 50;
+			else x_speed = 20;
+		}else if(delta_x < -30)x_speed = -50;
+				else x_speed = -20;
+
+		if(delta_y > 0){
+			if (delta_y > 30)y_speed = 50;
+			else y_speed = 20;
+		}else if(delta_y < -30)y_speed = -50;
+				else y_speed = -20;
+
+		move_robot(x_speed , y_speed,  0);
+
+		HAL_Delay(10);
+
+		  printf("second  w= ");
+		  print_float(robot_position[2]);
+		  printf("  x= ");
+		  print_float(robot_position[0]);
+		  printf("  y= ");
+		  print_float(robot_position[1]);
+		  printf("  yaw_st = %d  x_st = %d  y_st = %d   ch_6 = %d\r\n", yaw_stick, x_stick, y_stick, ch_6);
+
+	}
+
+	move_robot(0 ,0,  0);
+
+	while((robot_position[2] > 0.01) | (robot_position[2] < -0.01)){
+		if(robot_position[2]>0)move_robot(0 , 0,  20);
+		else move_robot(0 , 0,  -20);
+		//HAL_Delay(10);
+
+		  printf("first  w= ");
+		  print_float(robot_position[2]);
+		  printf("  x= ");
+		  print_float(robot_position[0]);
+		  printf("  y= ");
+		  print_float(robot_position[1]);
+		  printf("  yaw_st = %d  x_st = %d  y_st = %d   ch_6 = %d\r\n", yaw_stick, x_stick, y_stick, ch_6);
+	}
+	move_robot(0 , 0,  0);
+
+
+
+
+}
+
 
 
 
@@ -90,8 +189,15 @@ int main(void){
 
   HAL_Init();
   SystemClock_Config();
-  MX_GPIO_Init();
 
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART1_UART_Init();
+  MX_USART3_UART_Init();
+
+
+  NVIC_EnableIRQ(USART3_IRQn);
+  DMA_Init();
 
   pin_setup();
   timer_setup();
@@ -99,9 +205,232 @@ int main(void){
   kinematics_setup();
 
 
+
+
+  printf("Start up\r\n");
+
+
+
   while (1){
-	  
-	  
+
+	  printf("w= ");
+	  print_float(robot_position[2]);
+	  printf("  x= ");
+	  print_float(robot_position[0]);
+	  printf("  y= ");
+	  print_float(robot_position[1]);
+	  printf("  yaw_st = %d  x_st = %d  y_st = %d   ch_6 = %d\r\n", yaw_stick, x_stick, y_stick, ch_6);
+
+
+	  current_pos = DMA_pos;
+
+	  //wait for first start byte
+	  while (content[current_pos] != 0x20){
+		  HAL_Delay(1);
+		  if (current_pos != DMA_pos){
+			  current_pos++;
+			  if (current_pos == 3200){
+				  current_pos = 0;
+			  }
+		  }
+	  }
+
+	  //wait for next byte to be avaible
+	  while(current_pos==DMA_pos){
+		  HAL_Delay(1);
+	  }
+	  current_pos++;
+	  if (current_pos == 3200){
+		  current_pos = 0;
+	  }
+
+	  //if it is seconf start byte the get needed data
+	  if (content[current_pos] == 0x40){
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get LSB
+		  LSB = content[current_pos];
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get MSB
+		  MSB = content[current_pos];
+
+		  //combine bytes then translate and translate
+		  x_stick = (LSB | (MSB << 8));
+		  x_stick -= 1500;
+
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get LSB
+		  LSB = content[current_pos];
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get MSB
+		  MSB = content[current_pos];
+
+		  //combine bytes then translate and translate
+		  y_stick = (LSB | (MSB << 8));
+		  y_stick -= 1500;
+
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get LSB
+		  LSB = content[current_pos];
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get MSB
+		  MSB = content[current_pos];
+
+		  //combine bytes then translate and translate
+		  throttle_stick = (LSB | (MSB << 8))-1000;
+
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get LSB
+		  LSB = content[current_pos];
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			  HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get MSB
+		  MSB = content[current_pos];
+
+		  //combine bytes then translate and dilate
+		  yaw_stick = (LSB | (MSB << 8));
+		  yaw_stick -= 1500;
+
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			   HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			  current_pos = 0;
+		  }
+
+		  //get LSB
+		  LSB = content[current_pos];
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			   HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			   current_pos = 0;
+		  }
+
+		  //get MSB
+		  MSB = content[current_pos];
+
+		  //combine bytes then translate and translate
+		  ch_5 = (LSB | (MSB << 8));
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			   HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			   current_pos = 0;
+		  }
+
+		  //get LSB
+		  LSB = content[current_pos];
+
+		  //wait for next byte to be avaiable
+		  while(current_pos==DMA_pos){
+			   HAL_Delay(1);
+		  }
+		  current_pos++;
+		  if (current_pos == 3200){
+			   current_pos = 0;
+		  }
+
+		  //get MSB
+		  MSB = content[current_pos];
+
+		  //combine bytes then translate and translate
+		  ch_6 = (LSB | (MSB << 8));
+
+		  if(ch_5==1000)disable_steppers();
+		  else enable_steppers();
+
+		  move_robot(x_stick * 0.3 , y_stick * 0.3,  yaw_stick * -0.3 );
+		  //set_speed(2,yaw_stick/10);
+
+		  //printf("%d  %d  %d\r\n", yaw_stick, x_stick, y_stick);
+
+		  if(ch_6==2000)goto_position(0,0,0);
+
+	  }
+
+
+
+
   }
 }
 
@@ -211,6 +540,25 @@ void motion_setup(){
 	   i2 = (a * e - d * b) / det;
 }
 
+void kinematics_setup(void){
+
+	robot_arc = robot_dia * 2;  //all trig functions are in radians
+
+	delta_theda = wheel_circumference /  (200 * (robot_arc + robot_dia));
+
+	delta_distance = robot_arc * sin(delta_theda);
+
+	//calculate the offsets in radians
+	motor_x_offsets[0] = M_PI * 4 / 3; //240 degrees
+	motor_x_offsets[1] = M_PI * 2 / 3;  //120 degrees
+	motor_x_offsets[2] = 0; //0 degrees
+
+	motor_y_offsets[0] = M_PI * 5 / 6;  //150 degrees
+	motor_y_offsets[1] = M_PI / 6;  //30 degrees
+	motor_y_offsets[2] = M_PI / -2;  //-90 degrees
+}
+
+
 
 void disable_steppers(void){
 
@@ -289,8 +637,8 @@ void motor_update(uint8_t motor_num){
 
 			divider_counter[motor_num] = 0;
 
-			robot_position[0] -= delta_distance * cos(robot_position[2] + motor_x_offsets[motor_num]);
-			robot_position[1] -= delta_distance * cos(robot_position[2] + motor_y_offsets[motor_num]);
+			robot_position[0] -= delta_distance * cos( motor_x_offsets[motor_num] - robot_position[2] );
+			robot_position[1] -= delta_distance * cos( motor_y_offsets[motor_num] - robot_position[2] );
 			robot_position[2] += delta_theda;
 
 			if(robot_position[2] > M_PI) robot_position[2] -= M_PI * 2;
@@ -301,8 +649,8 @@ void motor_update(uint8_t motor_num){
 
 			divider_counter[motor_num] = SPR_divider;
 
-			robot_position[0] += delta_distance * cos(robot_position[2] + motor_x_offsets[motor_num]);
-			robot_position[1] += delta_distance * cos(robot_position[2] + motor_y_offsets[motor_num]);
+			robot_position[0] += delta_distance * cos( motor_x_offsets[motor_num] - robot_position[2] );
+			robot_position[1] += delta_distance * cos( motor_y_offsets[motor_num] - robot_position[2] );
 			robot_position[2] -= delta_theda;
 
 			if(robot_position[2] < (M_PI * -1)) robot_position[2] += M_PI * 2;
@@ -398,6 +746,45 @@ void TIM5_IRQHandler(void){
 
 
 
+
+void DMA_Init(void){
+	  RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+
+	  //enable DMA on UART2 receive
+	  USART3->CR3 |= USART_CR3_DMAR;
+	  //enable interrupt on receive
+	  USART3->CR1 |= USART_CR1_RXNEIE;
+
+	  //reset DMA1 stream5
+	  DMA1_Stream1->CR &= ~DMA_SxCR_EN;
+	  while (DMA1_Stream1->CR & DMA_SxCR_EN){
+	  }  //wait for reset to complete
+
+	  //set the UART2_RX register
+	  DMA1_Stream1->PAR = (uint32_t)&(USART3->DR);
+	  //set memory buffer to write to
+	  DMA1_Stream1->M0AR = &content;
+	  //set number of bytes to transfer
+	  DMA1_Stream1->NDTR = 3200;
+	  //set the channel to CH4 (UART2_RX), circlular buffer and incremant
+	  DMA1_Stream1->CR =  DMA_SxCR_CHSEL_2 | DMA_SxCR_CIRC | DMA_SxCR_MINC | DMA_SxCR_TCIE;
+
+	  //enable the DMA
+	  DMA1_Stream1->CR |= DMA_SxCR_EN;
+}
+
+void USART3_IRQHandler(void){
+  DMA_pos++;
+  if (DMA_pos == 3200){
+	  DMA_pos = 0;
+  }
+}
+
+
+
+
+
+
 /** System Clock Configuration
 */
 void SystemClock_Config(void)
@@ -454,6 +841,58 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
+/* USART1 init function */
+static void MX_USART1_UART_Init(void)
+{
+
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 256000;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+}
+
+/* USART3 init function */
+static void MX_USART3_UART_Init(void)
+{
+
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+}
+
+/** 
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void) 
+{
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+
+}
 
 /** Configure pins as 
         * Analog 
